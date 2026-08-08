@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: vdw
+      POSTGRES_PASSWORD: vdw
+      POSTGRES_DB: vdw
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vdw -d vdw"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - vdw_pg_data:/var/lib/postgresql/data
+
+volumes:
+  vdw_pg_data:
