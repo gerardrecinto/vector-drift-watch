@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vdw
+          POSTGRES_PASSWORD: vdw
+          POSTGRES_DB: vdw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vdw -d vdw"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      VECTOR_DRIFT_WATCH_DATABASE_URL: postgresql://vdw:vdw@localhost:5432/vdw
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff
+        run: ruff check .
+
+      - name: pytest
+        run: pytest -v
