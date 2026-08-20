@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from vector_drift_watch.alerts import (
+    ConsecutiveBreachTracker,
     Thresholds,
     build_slack_payload,
     check_drift,
@@ -56,3 +57,37 @@ def test_fire_alert_returns_false_on_request_exception():
 
     with patch("vector_drift_watch.alerts.requests.post", side_effect=requests.ConnectionError("nope")):
         assert fire_alert("http://example.invalid/webhook", {"text": "hi"}) is False
+
+
+def test_consecutive_breach_tracker_does_not_escalate_on_single_breach():
+    tracker = ConsecutiveBreachTracker(required_streak=2)
+    assert tracker.record("latency", fired=True) is False
+
+
+def test_consecutive_breach_tracker_escalates_after_required_streak():
+    tracker = ConsecutiveBreachTracker(required_streak=2)
+    assert tracker.record("latency", fired=True) is False
+    assert tracker.record("latency", fired=True) is True
+
+
+def test_consecutive_breach_tracker_resets_streak_on_non_breach():
+    tracker = ConsecutiveBreachTracker(required_streak=2)
+    assert tracker.record("latency", fired=True) is False
+    assert tracker.record("latency", fired=False) is False
+    assert tracker.record("latency", fired=True) is False
+    assert tracker.record("latency", fired=True) is True
+
+
+def test_consecutive_breach_tracker_tracks_each_check_independently():
+    tracker = ConsecutiveBreachTracker(required_streak=2)
+    assert tracker.record("latency", fired=True) is False
+    assert tracker.record("drift", fired=True) is False
+    assert tracker.record("drift", fired=True) is True
+    # latency streak is untouched by drift's escalation
+    assert tracker.record("latency", fired=True) is True
+
+
+def test_consecutive_breach_tracker_default_streak_is_two():
+    tracker = ConsecutiveBreachTracker()
+    assert tracker.record("latency", fired=True) is False
+    assert tracker.record("latency", fired=True) is True

@@ -10,6 +10,7 @@ import click
 
 from vector_drift_watch import config
 from vector_drift_watch.alerts import (
+    ConsecutiveBreachTracker,
     Thresholds,
     build_slack_payload,
     check_drift,
@@ -124,9 +125,26 @@ def drift(old_path: str, new_path: str, json_out: bool) -> None:
 @click.option("--interval", default=30.0, type=float)
 @click.option("--baseline-path", default="snapshots/baseline.json", type=click.Path())
 @click.option("--cycles", default=0, type=int, help="0 means run forever")
+@click.option(
+    "--consecutive-breaches",
+    default=2,
+    type=int,
+    help=(
+        "require this many back-to-back over-threshold cycles per check before "
+        "webhook-alerting, so a single noisy sample doesn't page (see "
+        "doc-pagerduty-escalation in config.DEMO_CORPUS). 1 alerts on every breach."
+    ),
+)
+@click.option("--json-out", "json_out", is_flag=True, help="print each cycle summary as a JSON line")
 @click.pass_context
 def watch(
-    ctx: click.Context, webhook_url: str | None, interval: float, baseline_path: str, cycles: int
+    ctx: click.Context,
+    webhook_url: str | None,
+    interval: float,
+    baseline_path: str,
+    cycles: int,
+    consecutive_breaches: int,
+    json_out: bool,
 ) -> None:
     embedder = ctx.obj["embedder"]
     baseline_file = Path(baseline_path)
@@ -135,9 +153,12 @@ def watch(
     if not baseline_file.exists():
         baseline = take_snapshot(config.DEMO_QUERIES, embedder.embed)
         baseline_file.write_text(baseline.to_json())
-        click.echo(f"no baseline found, wrote one to {baseline_path}")
+        if not json_out:
+            click.echo(f"no baseline found, wrote one to {baseline_path}")
     else:
         baseline = Snapshot.from_json(baseline_file.read_text())
+
+    breach_tracker = ConsecutiveBreachTracker(required_streak=consecutive_breaches)
 
     cycle = 0
     while cycles == 0 or cycle < cycles:
@@ -152,25 +173,48 @@ def watch(
         current = take_snapshot(config.DEMO_QUERIES, embedder.embed)
         drift_report = compare_snapshots(baseline, current)
 
-        checks = [
-            check_latency(latency_report.p95_ms, Thresholds(config.DEFAULT_LATENCY_P95_THRESHOLD_MS, 0)),
-            check_drift(
+        checks = {
+            "latency": check_latency(
+                latency_report.p95_ms, Thresholds(config.DEFAULT_LATENCY_P95_THRESHOLD_MS, 0)
+            ),
+            "drift": check_drift(
                 drift_report.max_distance,
                 drift_report.max_distance_query,
                 Thresholds(0, config.DEFAULT_DRIFT_THRESHOLD),
             ),
+        }
+
+        escalated = [
+            check for name, check in checks.items() if breach_tracker.record(name, check.fired)
         ]
 
-        click.echo(
-            f"cycle {cycle}: p95={latency_report.p95_ms:.2f}ms  "
-            f"max_drift={drift_report.max_distance:.4f}  "
-            f"alerts={sum(1 for c in checks if c.fired)}"
-        )
+        webhook_posted: bool | None = None
+        if escalated and webhook_url:
+            payload = build_slack_payload(f"cycle {cycle}", escalated)
+            webhook_posted = fire_alert(webhook_url, payload)
 
-        if any(c.fired for c in checks) and webhook_url:
-            payload = build_slack_payload(f"cycle {cycle}", checks)
-            sent = fire_alert(webhook_url, payload)
-            click.echo(f"alert webhook posted: {sent}")
+        if json_out:
+            click.echo(
+                json.dumps(
+                    {
+                        "cycle": cycle,
+                        "p95_ms": latency_report.p95_ms,
+                        "max_drift": drift_report.max_distance,
+                        "breached": [name for name, c in checks.items() if c.fired],
+                        "escalated": [c.reason for c in escalated],
+                        "webhook_posted": webhook_posted,
+                    }
+                )
+            )
+        else:
+            click.echo(
+                f"cycle {cycle}: p95={latency_report.p95_ms:.2f}ms  "
+                f"max_drift={drift_report.max_distance:.4f}  "
+                f"breaches={sum(1 for c in checks.values() if c.fired)}  "
+                f"escalated={len(escalated)}"
+            )
+            if webhook_posted is not None:
+                click.echo(f"alert webhook posted: {webhook_posted}")
 
         if cycles == 0 or cycle < cycles:
             time.sleep(interval)

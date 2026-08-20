@@ -97,6 +97,18 @@ Set in `vector_drift_watch/config.py`: `DEFAULT_LATENCY_P95_THRESHOLD_MS =
 50.0`, `DEFAULT_DRIFT_THRESHOLD = 0.15` cosine distance. Both are plain
 constants, not tuned against any real production traffic.
 
+## Alert escalation
+
+`watch` requires a check (latency or drift) to breach its threshold on
+`--consecutive-breaches` back-to-back cycles (default 2) before it posts to
+the webhook, so a single noisy sample doesn't page anyone. This is the
+`doc-pagerduty-escalation` guidance from the demo corpus itself, actually
+implemented: "require two consecutive probe cycles over threshold before
+escalating." Pass `--consecutive-breaches 1` to alert on every single
+breach instead. `watch --json-out` prints one JSON line per cycle
+(`p95_ms`, `max_drift`, `breached`, `escalated`, `webhook_posted`) instead
+of the human-readable summary, for piping into a log processor.
+
 ## Docker
 
 ```bash

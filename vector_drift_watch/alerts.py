@@ -8,7 +8,7 @@ swapping in a real Slack webhook URL is a config change, not a code change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import requests
 
@@ -67,3 +67,26 @@ def fire_alert(webhook_url: str, payload: dict, timeout_seconds: float = 5.0) ->
         return response.ok
     except requests.RequestException:
         return False
+
+
+@dataclass
+class ConsecutiveBreachTracker:
+    """Requires a check to fire `required_streak` cycles in a row before
+    escalating, per doc-pagerduty-escalation in config.DEMO_CORPUS: "require
+    two consecutive probe cycles over threshold before escalating to
+    PagerDuty" so a single noisy sample doesn't page anyone. Each check name
+    (e.g. "latency", "drift") is tracked independently.
+    """
+
+    required_streak: int = 2
+    _streaks: dict[str, int] = field(default_factory=dict)
+
+    def record(self, check_name: str, fired: bool) -> bool:
+        """Records one cycle's result for check_name, returns True the cycle
+        the streak reaches required_streak (and every cycle after, until the
+        streak breaks)."""
+        if fired:
+            self._streaks[check_name] = self._streaks.get(check_name, 0) + 1
+        else:
+            self._streaks[check_name] = 0
+        return self._streaks[check_name] >= self.required_streak
