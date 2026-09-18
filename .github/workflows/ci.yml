@@ -29,7 +29,7 @@ jobs:
       VECTOR_DRIFT_WATCH_DATABASE_URL: postgresql://vdw:vdw@localhost:5432/vdw
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
