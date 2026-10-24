@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vector-drift-watch: catch embedding drift early</title>
+<meta name="description" content="Change a simulated embedder and see cosine-distance drift per query, a threshold check, a consecutive-breach escalation and a Slack-shaped alert. The real drift code runs in your browser.">
+<meta property="og:title" content="vector-drift-watch">
+<meta property="og:description" content="Change a simulated embedder and see cosine-distance drift per query, a threshold check, a consecutive-breach escalation and a Slack-shaped alert. The real drift code runs in your browser.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238b5cf6'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%23fff' stroke-width='3'/%3E%3C/svg%3E">
+<style>
+
+:root{--bg:#f8fafc;--panel:#fff;--panel2:#f1f5f9;--line:#e2e8f0;--fg:#0f172a;--mute:#475569;--brand:#6d28d9;--brand-bg:#ede9fe;--ok:#047857;--ok-bg:#d1fae5;--err:#b91c1c;--err-bg:#fee2e2;--code:#0b1220;--code-fg:#e2e8f0}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#070d1a;--panel:#0d1526;--panel2:#111c33;--line:#1e2b47;--fg:#e8eefc;--mute:#9fb0cc;--brand:#a78bfa;--brand-bg:#2a1659;--ok:#34d399;--ok-bg:#06382b;--err:#fca5a5;--err-bg:#3b1212}}
+:root[data-theme=dark]{--bg:#070d1a;--panel:#0d1526;--panel2:#111c33;--line:#1e2b47;--fg:#e8eefc;--mute:#9fb0cc;--brand:#a78bfa;--brand-bg:#2a1659;--ok:#34d399;--ok-bg:#06382b;--err:#fca5a5;--err-bg:#3b1212}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--brand)}
+code,pre,textarea,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+nav{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:56px;gap:12px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--fg);text-decoration:none}
+.logo i{width:22px;height:22px;border-radius:6px;background:#8b5cf6;display:inline-block}
+nav .links{display:flex;gap:18px;align-items:center;font-size:14px}
+nav .links a{color:var(--mute);text-decoration:none}
+nav .links a:hover{color:var(--fg)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--fg);background:var(--panel);cursor:pointer;font-size:15px}
+.btn.primary{background:#8b5cf6;border-color:#8b5cf6;color:#1a0b3d}
+.btn.primary:hover{background:#a78bfa}
+.btn:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #8b5cf6;outline-offset:2px}
+.hero{padding:72px 0 40px;text-align:center}
+.pill{display:inline-block;font-size:13px;color:var(--brand);background:var(--brand-bg);padding:4px 12px;border-radius:99px;margin-bottom:20px;font-weight:600}
+h1{font-size:clamp(34px,6vw,58px);line-height:1.08;margin:0 0 18px;letter-spacing:-.02em}
+h1 em{font-style:normal;color:var(--brand)}
+.lede{max-width:700px;margin:0 auto 28px;color:var(--mute);font-size:18px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.stats{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-top:36px;color:var(--mute);font-size:14px}
+.stats b{display:block;color:var(--fg);font-size:22px}
+section{padding:56px 0}
+h2{font-size:clamp(26px,4vw,36px);margin:0 0 8px;letter-spacing:-.01em}
+.sub{color:var(--mute);margin:0 0 28px;max-width:720px}
+.lab{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:860px){.lab{grid-template-columns:minmax(0,1fr)}nav .links .hide-s{display:none}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-width:0}
+.card h3{margin:0;padding:12px 16px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:600 12px system-ui;padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer;text-transform:none;letter-spacing:0}
+.chip[aria-pressed=true]{background:var(--brand-bg);border-color:var(--brand);color:var(--brand)}
+#log{display:block;width:100%;height:420px;border:0;padding:12px 14px;font-size:12.5px;line-height:1.55;background:var(--code);color:var(--code-fg);resize:vertical;white-space:pre;overflow:auto}
+.src{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--line);font-size:13px;color:var(--mute);flex-wrap:wrap}
+.out{min-height:420px}
+.status{padding:16px;color:var(--mute);font-size:14px}
+.verdict{padding:18px 16px;border-bottom:1px solid var(--line);background:var(--err-bg)}
+.verdict.unknown{background:var(--panel2)}
+.verdict b{display:block;font-size:20px;text-transform:uppercase;letter-spacing:.04em;color:var(--err)}
+.verdict.unknown b{color:var(--mute)}
+.verdict span{font-size:14px;color:var(--mute)}
+.sec{padding:14px 16px;border-bottom:1px solid var(--line)}
+.sec:last-child{border-bottom:0}
+.sec h4{margin:0 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.bar{height:10px;border-radius:99px;background:var(--panel2);overflow:hidden;max-width:260px;display:inline-block;vertical-align:middle;margin-right:10px;width:60%}
+.bar i{display:block;height:100%;background:#8b5cf6}
+.site{padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.site:last-child{border:0}
+.site code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:12px}
+.fix{background:var(--ok-bg);color:var(--ok);padding:10px 12px;border-radius:8px;font-size:14px}
+.note{font-size:13px;color:var(--mute);margin-top:12px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media (max-width:860px){.steps{grid-template-columns:minmax(0,1fr)}}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+.step .n{width:28px;height:28px;border-radius:8px;background:var(--brand-bg);color:var(--brand);display:grid;place-items:center;font-weight:700;margin-bottom:10px}
+.step h3{margin:0 0 6px;font-size:17px}
+.step p{margin:0;color:var(--mute);font-size:15px}
+.tw{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow-x:auto;max-width:100%}
+table{width:100%;min-width:560px;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);background:var(--panel2)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-family:ui-monospace,monospace;font-weight:700;white-space:nowrap}
+.install pre{background:var(--code);color:var(--code-fg);padding:16px;border-radius:12px;overflow-x:auto;font-size:13.5px;margin:0 0 12px}
+.cols2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:860px){.cols2{grid-template-columns:minmax(0,1fr)}}
+.limits{background:var(--panel);border:1px solid var(--line);border-left:4px solid #f59e0b;border-radius:10px;padding:16px 20px}
+.limits ul{margin:8px 0 0;padding-left:20px;color:var(--mute)}
+footer{border-top:1px solid var(--line);padding:32px 0;color:var(--mute);font-size:14px}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+#qs{display:block;width:100%;height:150px;border:0;padding:12px 14px;font-size:13px;line-height:1.55;background:var(--code);color:var(--code-fg);resize:vertical;white-space:pre;overflow:auto}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;padding:14px;border-top:1px solid var(--line)}
+.ctrl label{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
+.ctrl select,.ctrl input[type=number]{width:100%;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:13px}
+.ctrl input[type=range]{width:100%;accent-color:var(--brand)}
+.act{display:flex;gap:8px;padding:0 14px 14px;flex-wrap:wrap}
+.m{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.m div{background:var(--panel2);border-radius:10px;padding:8px 10px;font-size:12px;color:var(--mute)}
+.m b{display:block;font-size:20px;color:var(--fg)}
+.q{padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px}
+.q .t{overflow-wrap:anywhere}
+.bar{position:relative;height:10px;border-radius:99px;background:var(--panel2);margin-top:6px}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--brand)}
+.bar i.hot{background:#ef4444}
+.bar u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);opacity:.6}
+.verdict{padding:14px 16px;border-bottom:1px solid var(--line);font-size:14px}
+.verdict.fire{background:var(--err-bg);color:var(--err)}
+.verdict.calm{background:var(--ok-bg);color:var(--ok)}
+.sec{padding:12px 16px;border-bottom:1px solid var(--line)}
+.sec h4{margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+pre.raw{margin:0;padding:10px 12px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;background:var(--code);color:var(--code-fg);border-radius:8px}
+.out{max-height:640px;overflow:auto}
+.sim{display:inline-block;font:700 11px ui-monospace,monospace;color:var(--brand);background:var(--brand-bg);padding:2px 8px;border-radius:6px}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="logo" href="#top"><i></i>vector-drift-watch</a>
+  <div class="links"><a href="#try" class="hide-s">Try it</a><a href="#install" class="hide-s">Install</a><a class="btn" href="https://github.com/gerardrecinto/vector-drift-watch">GitHub</a></div>
+</div></nav>
+
+<header class="hero" id="top"><div class="wrap">
+  <h1>Retrieval got worse. <em>Nothing paged.</em> Watch for it.</h1>
+  <p class="lede">A CLI and small service that probes a vector store for query latency and tracks embedding drift between snapshots of a fixed query set. It alerts a Slack-shaped webhook when either crosses a threshold twice in a row.</p>
+  <div class="cta"><a class="btn primary" href="#try">Try the drift math</a><a class="btn" href="#install">Run it with pgvector</a></div>
+  <div class="stats"><div><b>2</b>signals: latency and drift</div><div><b>1</b>fixed query set, same every run</div><div><b>2</b>embedders compared, both simulated</div></div>
+</div></header>
+
+
+<section id="try"><div class="wrap">
+  <h2>Change the embedder, watch the distance move</h2>
+  <p class="sub">Take a snapshot of a fixed query set, change the embedder, take another, and compare. The real hashing embedder, cosine distance, threshold check and Slack-shaped alert payload run in your browser. The embedders are <strong>simulated stand-ins</strong> for a model version bump, exactly as in the repo's own demo. They are not semantic models.</p>
+  <div class="lab">
+    <div class="card">
+      <h3><span>Fixed query set <span class="sim">SIMULATED EMBEDDERS</span></span></h3>
+      <label class="sr" for="qs">One query per line</label>
+      <textarea id="qs" spellcheck="false" wrap="off"></textarea>
+      <div class="ctrl">
+        <div><label for="n0">Baseline n-gram size</label><select id="n0"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+        <div><label for="n1">Current n-gram size</label><select id="n1"><option selected>2</option><option>3</option><option>4</option><option>5</option></select></div>
+        <div><label for="dim">Dimensions</label><select id="dim"><option>64</option><option selected>128</option><option>256</option></select></div>
+        <div><label for="thr">Drift threshold <b id="thrv">0.15</b></label><input id="thr" type="range" min="0.01" max="0.8" step="0.01" value="0.15"></div>
+        <div><label for="streak">Breaches before escalating</label><select id="streak"><option>1</option><option selected>2</option><option>3</option></select></div>
+      </div>
+      <div class="act"><button class="btn primary" id="cycle" type="button">Run a probe cycle</button><button class="btn" id="reset" type="button">Reset streak</button></div>
+    </div>
+    <div class="card" id="res" aria-live="polite"><h3><span>Drift report</span></h3><div class="status" id="boot">Loading the engine (about 10 MB the first time, cached after)...</div></div>
+  </div>
+  <p class="note">Each cycle uses the same two snapshots here, so a breach repeats until you change a setting. In the real tool every cycle re-probes the live store, so one noisy sample does not page anyone.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>How it works</h2>
+  <p class="sub">A RAG pipeline can look healthy while retrieval quietly gets worse. This watches the two signals that predict it.</p>
+  <div class="steps">
+    <div class="step"><div class="n">1</div><h3>Probe latency</h3><p>Run a fixed query set against a pgvector store several times and report p50, p95 and p99. A p95 climbing as the index grows usually means a sequential scan.</p></div>
+    <div class="step"><div class="n">2</div><h3>Snapshot and compare</h3><p>Embed the same queries on a schedule and compare snapshots with cosine distance. A step change in distance after an unannounced model bump shows up here.</p></div>
+    <div class="step"><div class="n">3</div><h3>Alert on a streak</h3><p>A threshold must be breached on consecutive cycles before it posts a Slack-shaped payload to a webhook, so a single outlier does not escalate.</p></div>
+  </div>
+</div></section>
+
+<section id="install" class="install"><div class="wrap">
+  <h2>Run it against a real store</h2>
+  <p class="sub">Python 3.12, Docker for Postgres with pgvector.</p>
+  <div class="cols2">
+    <div>
+<pre>docker compose up -d
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+export VECTOR_DRIFT_WATCH_DATABASE_URL="postgresql://vdw:vdw@localhost:5432/vdw"
+
+python -m vector_drift_watch.cli init-schema
+python -m vector_drift_watch.cli ingest
+python -m vector_drift_watch.cli probe --repeats 30</pre>
+    </div>
+    <div>
+<pre>python -m vector_drift_watch.cli snapshot snapshots/baseline.json
+python -m vector_drift_watch.cli snapshot snapshots/now.json
+python -m vector_drift_watch.cli drift snapshots/baseline.json snapshots/now.json
+python -m vector_drift_watch.cli watch --webhook-url http://127.0.0.1:8787 --cycles 1</pre>
+      <p class="note">Swap the hashing embedder for a real model by implementing the same <code>embed(text)</code> protocol.</p>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="limits">
+    <strong>What this does not do</strong>
+    <ul>
+      <li>This page does not measure latency. That needs a live vector store, so only the repo's CLI does it.</li>
+      <li>The hashing embedder is deterministic and not semantic. Distances here show the math working, not how a real model drifts.</li>
+      <li>Thresholds are plain constants, not tuned against production traffic.</li>
+      <li>The Slack payload is the right shape. The repo's demo posts it to a local mock receiver.</li>
+    </ul>
+  </div>
+</div></section>
+
+
+<footer><div class="wrap">
+  <span>vector-drift-watch. MIT licensed. Built by <a href="https://github.com/gerardrecinto">Gerard Recinto</a>.</span>
+  <span><a href="https://github.com/gerardrecinto/vector-drift-watch">Source</a> &middot; <a href="https://github.com/gerardrecinto/vector-drift-watch/releases">Releases</a></span>
+</div></footer>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script>
+
+(() => {
+  const FILES = ["__init__.py", "config.py", "embeddings.py", "drift.py", "alerts.py"];
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let py = null, timer = null;
+  const track = (n) => { try { if (window.plausible) window.plausible(n); } catch (e) {} };
+  const PY = `
+import json
+from vector_drift_watch import config
+from vector_drift_watch.alerts import Thresholds, check_drift, build_slack_payload, ConsecutiveBreachTracker
+from vector_drift_watch.drift import compare_snapshots, take_snapshot
+from vector_drift_watch.embeddings import HashingEmbedder
+TR = ConsecutiveBreachTracker(2)
+def default_queries(): return json.dumps(config.DEMO_QUERIES)
+def reset(streak):
+    global TR; TR = ConsecutiveBreachTracker(int(streak))
+def run(queries, n0, n1, dim, thr, streak, bump):
+    TR.required_streak = int(streak)
+    qs = [q.strip() for q in queries.split("\\n") if q.strip()]
+    a = take_snapshot(qs, HashingEmbedder(dimension=int(dim), ngram=int(n0)).embed)
+    b = take_snapshot(qs, HashingEmbedder(dimension=int(dim), ngram=int(n1)).embed)
+    rep = compare_snapshots(a, b)
+    chk = check_drift(rep.max_distance, rep.max_distance_query, Thresholds(0, float(thr)))
+    esc = TR.record("drift", chk.fired) if bump else (TR._streaks.get("drift", 0) >= TR.required_streak)
+    return json.dumps({"drifts": [{"q": d.query, "d": d.distance} for d in rep.query_drifts], "mean": rep.mean_distance, "max": rep.max_distance,
+        "maxq": rep.max_distance_query, "fired": chk.fired, "reason": chk.reason, "streak": TR._streaks.get("drift", 0), "esc": esc,
+        "payload": build_slack_payload("embedding drift", [chk])})
+`;
+  function show(r, thr) {
+    const res = $("res"), head = "<h3><span>Drift report</span></h3>";
+    if (r.error) { res.innerHTML = head + `<div class="status" style="color:var(--err)">${esc(r.error)}</div>`; return; }
+    const scale = Math.max(0.05, thr * 1.5, r.max * 1.1);
+    const rows = r.drifts.map((d) => `<div class="q"><div class="t">${esc(d.q)} <b style="float:right">${d.d.toFixed(4)}</b></div><div class="bar"><i class="${d.d > thr ? "hot" : ""}" style="width:${Math.min(100, (d.d / scale) * 100)}%"></i><u style="left:${(thr / scale) * 100}%" title="threshold"></u></div></div>`).join("");
+    res.innerHTML = head +
+      `<div class="m"><div><b>${r.mean.toFixed(4)}</b>mean distance</div><div><b>${r.max.toFixed(4)}</b>max distance</div><div><b>${r.streak}</b>breach streak</div><div><b>${r.esc ? "yes" : "no"}</b>would escalate</div></div>` +
+      `<div class="verdict ${r.fired ? "fire" : "calm"}">${esc(r.reason)}${r.fired ? "" : "."}</div>` +
+      `<div class="out">${rows}<div class="sec"><h4>Slack-shaped payload (not sent)</h4><pre class="raw">${esc(JSON.stringify(r.payload, null, 2))}</pre></div></div>`;
+  }
+  function go(bump) {
+    if (!py) return;
+    const thr = parseFloat($("thr").value); $("thrv").textContent = thr.toFixed(2);
+    let r;
+    try {
+      py.globals.set("_q", $("qs").value); py.globals.set("_a", $("n0").value); py.globals.set("_b", $("n1").value); py.globals.set("_d", $("dim").value); py.globals.set("_t", thr); py.globals.set("_s", $("streak").value);
+      r = JSON.parse(py.runPython(`run(_q, _a, _b, _d, _t, _s, ${bump ? "True" : "False"})`));
+    } catch (e) { const m = String(e.message || e).trim().split("\n").pop(); r = { error: /share no queries|empty|max\(\)/i.test(m) ? "Add at least one query." : m }; }
+    show(r, thr);
+  }
+  const soft = () => { clearTimeout(timer); timer = setTimeout(() => { py.runPython(`reset(${$("streak").value})`); go(false); }, 200); };
+  ["qs", "n0", "n1", "dim", "thr", "streak"].forEach((id) => $(id).addEventListener("input", soft));
+  $("cycle").addEventListener("click", () => { go(true); track("vd_cycle"); });
+  $("reset").addEventListener("click", () => { py.runPython(`reset(${$("streak").value})`); go(false); });
+  (async () => {
+    try {
+      py = await loadPyodide();
+      await py.loadPackage(["requests"]);
+      py.FS.mkdirTree("/lib/vector_drift_watch");
+      await Promise.all(FILES.map(async (f) => { const r = await fetch("py/" + f); if (!r.ok) throw new Error("could not load " + f); py.FS.writeFile("/lib/vector_drift_watch/" + f, await r.text()); }));
+      py.runPython("import sys; sys.path.insert(0, '/lib')"); py.runPython(PY);
+      $("qs").value = JSON.parse(py.runPython("default_queries()")).join("\n");
+      window.__VD_READY__ = true; go(false);
+    } catch (e) { $("boot").textContent = "The in-browser engine did not load (" + String(e.message || e).split("\n").pop() + "). The CLI install below gives the same result."; }
+  })();
+})();
+
+</script>
+</body>
+</html>
