@@ -186,11 +186,9 @@ python -m vector_drift_watch.cli watch --webhook-url http://127.0.0.1:8787 --cyc
 
 <section><div class="wrap">
   <div class="limits">
-    <strong>What this does not do</strong>
+    <strong>About this demo</strong>
     <ul>
       <li>This page does not measure latency. That needs a live vector store, so only the repo's CLI does it.</li>
-      <li>The hashing embedder is deterministic and not semantic. Distances here show the math working, not how a real model drifts.</li>
-      <li>Thresholds are plain constants, not tuned against production traffic.</li>
       <li>The Slack payload is the right shape. The repo's demo posts it to a local mock receiver.</li>
     </ul>
   </div>
